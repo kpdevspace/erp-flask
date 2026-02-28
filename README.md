@@ -78,8 +78,20 @@ Open: http://127.0.0.1:5000
 ## API examples
 
 ```bash
-# login first (session cookie), then call
-curl "http://127.0.0.1:5000/api/rfqs?page=1&per_page=20&search=ABC&status=draft"
+# 1) get token
+curl -X POST http://127.0.0.1:5000/api/token \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}'
+
+# 2) call API with Bearer token
+curl "http://127.0.0.1:5000/api/rfqs?page=1&per_page=20&search=ABC&status=draft" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
+
+# 3) workflow transition
+curl -X POST http://127.0.0.1:5000/api/rfqs/1/workflow \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"submitted"}'
 ```
 
 ## Architecture
@@ -102,7 +114,20 @@ curl "http://127.0.0.1:5000/api/rfqs?page=1&per_page=20&search=ABC&status=draft"
    - `GET/POST /api/rfqs`
    - `GET/POST /api/purchase-orders`
    - `GET/POST /api/invoices`
+   - `GET/PUT/DELETE /api/rfqs/<id>`
+   - `GET/PUT/DELETE /api/purchase-orders/<id>`
+   - `GET/PUT/DELETE /api/invoices/<id>`
    - Query params: `page`, `per_page`, `search`, `status`
+6. JWT token auth for client apps (`POST /api/token`)
+7. Approval workflow endpoint:
+   - `POST /api/rfqs/<id>/workflow`
+   - `POST /api/purchase-orders/<id>/workflow`
+   - `POST /api/invoices/<id>/workflow`
+   - transition: `draft -> submitted -> approved/rejected`
+8. Report page + export:
+   - `/reports`
+   - `/reports/export.xlsx`
+   - `/reports/export.pdf`
 
 ## Initial admin
 1. Open `/init-admin` once to create default admin.

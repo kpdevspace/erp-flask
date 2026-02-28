@@ -1,12 +1,17 @@
 import os
 from decimal import Decimal, InvalidOperation
 from functools import wraps
+from io import BytesIO
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import func
+from openpyxl import Workbook
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 
 from . import db
+from .auth import issue_token, api_auth_required, api_role_required
 from .models import Project, Document, User, RFQ, PurchaseOrder, Invoice
 
 
@@ -29,6 +34,13 @@ MENU_ITEMS = [
     "Material Request",
     "My Account",
 ]
+
+WORKFLOW = {
+    "draft": ["submitted"],
+    "submitted": ["approved", "rejected"],
+    "approved": [],
+    "rejected": [],
+}
 
 
 def role_required(*roles):
@@ -77,6 +89,32 @@ def get_page_args():
     return page, per_page
 
 
+def ensure_transition(current_status: str, next_status: str):
+    allowed = WORKFLOW.get(current_status, [])
+    if next_status not in allowed:
+        raise ValueError(f"Invalid transition {current_status} -> {next_status}")
+
+
+def serialize(model_name, row):
+    base = {"id": row.id, "status": row.status, "created_at": row.created_at.isoformat()}
+    if model_name == "rfq":
+        return {**base, "rfq_no": row.rfq_no, "supplier_name": row.supplier_name, "total_amount": float(row.total_amount)}
+    if model_name == "po":
+        return {**base, "po_no": row.po_no, "vendor_name": row.vendor_name, "total_amount": float(row.total_amount)}
+    return {**base, "invoice_no": row.invoice_no, "customer_name": row.customer_name, "total_amount": float(row.total_amount)}
+
+
+def report_data():
+    return {
+        "rfq_count": db.session.query(func.count(RFQ.id)).scalar() or 0,
+        "po_count": db.session.query(func.count(PurchaseOrder.id)).scalar() or 0,
+        "invoice_count": db.session.query(func.count(Invoice.id)).scalar() or 0,
+        "po_total": float(db.session.query(func.coalesce(func.sum(PurchaseOrder.total_amount), 0)).scalar() or 0),
+        "invoice_total": float(db.session.query(func.coalesce(func.sum(Invoice.total_amount), 0)).scalar() or 0),
+        "unpaid_invoice_count": db.session.query(func.count(Invoice.id)).filter(Invoice.status == "unpaid").scalar() or 0,
+    }
+
+
 @bp.route("/init-admin")
 def init_admin():
     if User.query.filter_by(username="admin").first():
@@ -109,18 +147,64 @@ def logout():
     return redirect(url_for("erp.login"))
 
 
+@bp.route("/api/token", methods=["POST"])
+def api_token():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", ""))
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.check_password(password):
+        return jsonify({"error": "invalid_credentials"}), 401
+    token = issue_token(user)
+    return jsonify({"access_token": token, "token_type": "Bearer", "role": user.role})
+
+
 @bp.route("/")
 @login_required
 def home():
-    kpi = {
-        "rfq_count": db.session.query(func.count(RFQ.id)).scalar() or 0,
-        "po_count": db.session.query(func.count(PurchaseOrder.id)).scalar() or 0,
-        "invoice_count": db.session.query(func.count(Invoice.id)).scalar() or 0,
-        "po_total": float(db.session.query(func.coalesce(func.sum(PurchaseOrder.total_amount), 0)).scalar() or 0),
-        "invoice_total": float(db.session.query(func.coalesce(func.sum(Invoice.total_amount), 0)).scalar() or 0),
-        "unpaid_invoice_count": db.session.query(func.count(Invoice.id)).filter(Invoice.status == "unpaid").scalar() or 0,
-    }
-    return render_template("home.html", menu_items=MENU_ITEMS, kpi=kpi)
+    return render_template("home.html", menu_items=MENU_ITEMS, kpi=report_data())
+
+
+@bp.route("/reports")
+@login_required
+def reports_page():
+    return render_template("reports.html", menu_items=MENU_ITEMS, kpi=report_data())
+
+
+@bp.route("/reports/export.xlsx")
+@login_required
+def reports_export_xlsx():
+    kpi = report_data()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ERP Report"
+    ws.append(["Metric", "Value"])
+    for key, value in kpi.items():
+        ws.append([key, value])
+    out = BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return send_file(out, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name="erp-report.xlsx")
+
+
+@bp.route("/reports/export.pdf")
+@login_required
+def reports_export_pdf():
+    kpi = report_data()
+    out = BytesIO()
+    pdf = canvas.Canvas(out, pagesize=A4)
+    y = 800
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(50, y, "ERP Report")
+    y -= 30
+    pdf.setFont("Helvetica", 11)
+    for key, value in kpi.items():
+        pdf.drawString(50, y, f"{key}: {value}")
+        y -= 20
+    pdf.showPage()
+    pdf.save()
+    out.seek(0)
+    return send_file(out, mimetype="application/pdf", as_attachment=True, download_name="erp-report.pdf")
 
 
 @bp.route("/module/<slug>")
@@ -133,13 +217,7 @@ def module_page(slug):
         .limit(10)
         .all()
     )
-    return render_template(
-        "modules/module_page.html",
-        menu_items=MENU_ITEMS,
-        title=title,
-        slug=slug,
-        recent_docs=recent_docs,
-    )
+    return render_template("modules/module_page.html", menu_items=MENU_ITEMS, title=title, slug=slug, recent_docs=recent_docs)
 
 
 @bp.route("/projects")
@@ -155,22 +233,14 @@ def rfqs():
     if request.method == "POST":
         try:
             validate_required(request.form, ["rfq_no", "supplier_name"])
-            total_amount = parse_decimal(request.form.get("total_amount"), "total_amount")
-            item = RFQ(
-                rfq_no=request.form["rfq_no"].strip(),
-                supplier_name=request.form["supplier_name"].strip(),
-                total_amount=total_amount,
-                status=request.form.get("status", "draft").strip() or "draft",
-            )
+            item = RFQ(rfq_no=request.form["rfq_no"].strip(), supplier_name=request.form["supplier_name"].strip(), total_amount=parse_decimal(request.form.get("total_amount"), "total_amount"), status=request.form.get("status", "draft").strip() or "draft")
             db.session.add(item)
             db.session.commit()
             flash("RFQ created", "success")
         except ValueError as exc:
             flash(str(exc), "danger")
         return redirect(url_for("erp.rfqs"))
-
-    items = RFQ.query.order_by(RFQ.created_at.desc()).all()
-    return render_template("modules/rfqs.html", menu_items=MENU_ITEMS, items=items)
+    return render_template("modules/rfqs.html", menu_items=MENU_ITEMS, items=RFQ.query.order_by(RFQ.created_at.desc()).all())
 
 
 @bp.route("/purchase-orders", methods=["GET", "POST"])
@@ -179,22 +249,14 @@ def purchase_orders():
     if request.method == "POST":
         try:
             validate_required(request.form, ["po_no", "vendor_name"])
-            total_amount = parse_decimal(request.form.get("total_amount"), "total_amount")
-            item = PurchaseOrder(
-                po_no=request.form["po_no"].strip(),
-                vendor_name=request.form["vendor_name"].strip(),
-                total_amount=total_amount,
-                status=request.form.get("status", "draft").strip() or "draft",
-            )
+            item = PurchaseOrder(po_no=request.form["po_no"].strip(), vendor_name=request.form["vendor_name"].strip(), total_amount=parse_decimal(request.form.get("total_amount"), "total_amount"), status=request.form.get("status", "draft").strip() or "draft")
             db.session.add(item)
             db.session.commit()
             flash("Purchase Order created", "success")
         except ValueError as exc:
             flash(str(exc), "danger")
         return redirect(url_for("erp.purchase_orders"))
-
-    items = PurchaseOrder.query.order_by(PurchaseOrder.created_at.desc()).all()
-    return render_template("modules/purchase_orders.html", menu_items=MENU_ITEMS, items=items)
+    return render_template("modules/purchase_orders.html", menu_items=MENU_ITEMS, items=PurchaseOrder.query.order_by(PurchaseOrder.created_at.desc()).all())
 
 
 @bp.route("/invoices", methods=["GET", "POST"])
@@ -203,154 +265,212 @@ def invoices():
     if request.method == "POST":
         try:
             validate_required(request.form, ["invoice_no", "customer_name"])
-            total_amount = parse_decimal(request.form.get("total_amount"), "total_amount")
-            item = Invoice(
-                invoice_no=request.form["invoice_no"].strip(),
-                customer_name=request.form["customer_name"].strip(),
-                total_amount=total_amount,
-                status=request.form.get("status", "unpaid").strip() or "unpaid",
-            )
+            item = Invoice(invoice_no=request.form["invoice_no"].strip(), customer_name=request.form["customer_name"].strip(), total_amount=parse_decimal(request.form.get("total_amount"), "total_amount"), status=request.form.get("status", "unpaid").strip() or "unpaid")
             db.session.add(item)
             db.session.commit()
             flash("Invoice created", "success")
         except ValueError as exc:
             flash(str(exc), "danger")
         return redirect(url_for("erp.invoices"))
+    return render_template("modules/invoices.html", menu_items=MENU_ITEMS, items=Invoice.query.order_by(Invoice.created_at.desc()).all())
 
-    items = Invoice.query.order_by(Invoice.created_at.desc()).all()
-    return render_template("modules/invoices.html", menu_items=MENU_ITEMS, items=items)
+
+def _api_list(q, model_name):
+    page, per_page = get_page_args()
+    pagination = q.paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({"data": [serialize(model_name, r) for r in pagination.items], "meta": list_meta(page, per_page, pagination.total)})
 
 
 @bp.route("/api/rfqs", methods=["GET", "POST"])
-@login_required
+@api_auth_required
 def api_rfqs():
+    user = request.api_user
     if request.method == "POST":
-        if current_user.role not in ["admin", "purchase"]:
+        if user.role not in ["admin", "purchase"]:
             return jsonify({"error": "forbidden"}), 403
         data = request.get_json(silent=True) or {}
         try:
             validate_required(data, ["rfq_no", "supplier_name"])
-            item = RFQ(
-                rfq_no=data["rfq_no"].strip(),
-                supplier_name=data["supplier_name"].strip(),
-                total_amount=parse_decimal(data.get("total_amount"), "total_amount"),
-                status=(data.get("status") or "draft").strip(),
-            )
-            db.session.add(item)
+            row = RFQ(rfq_no=data["rfq_no"].strip(), supplier_name=data["supplier_name"].strip(), total_amount=parse_decimal(data.get("total_amount"), "total_amount"), status=(data.get("status") or "draft").strip())
+            db.session.add(row)
             db.session.commit()
-            return jsonify({"id": item.id, "message": "created"}), 201
+            return jsonify({"message": "created", "data": serialize("rfq", row)}), 201
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-    page, per_page = get_page_args()
     q = RFQ.query
-    search = (request.args.get("search") or "").strip()
+    s = (request.args.get("search") or "").strip()
     status = (request.args.get("status") or "").strip()
-    if search:
-        q = q.filter((RFQ.rfq_no.ilike(f"%{search}%")) | (RFQ.supplier_name.ilike(f"%{search}%")))
+    if s:
+        q = q.filter((RFQ.rfq_no.ilike(f"%{s}%")) | (RFQ.supplier_name.ilike(f"%{s}%")))
     if status:
         q = q.filter(RFQ.status == status)
+    return _api_list(q.order_by(RFQ.created_at.desc()), "rfq")
 
-    pagination = q.order_by(RFQ.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    rows = [
-        {
-            "id": r.id,
-            "rfq_no": r.rfq_no,
-            "supplier_name": r.supplier_name,
-            "total_amount": float(r.total_amount),
-            "status": r.status,
-            "created_at": r.created_at.isoformat(),
-        }
-        for r in pagination.items
-    ]
-    return jsonify({"data": rows, "meta": list_meta(page, per_page, pagination.total)})
+
+@bp.route("/api/rfqs/<int:item_id>", methods=["GET", "PUT", "DELETE"])
+@api_auth_required
+def api_rfqs_item(item_id):
+    user = request.api_user
+    row = RFQ.query.get_or_404(item_id)
+    if request.method == "GET":
+        return jsonify({"data": serialize("rfq", row)})
+    if user.role not in ["admin", "purchase"]:
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == "DELETE":
+        db.session.delete(row)
+        db.session.commit()
+        return jsonify({"message": "deleted"})
+    data = request.get_json(silent=True) or {}
+    if "supplier_name" in data:
+        row.supplier_name = data["supplier_name"].strip()
+    if "total_amount" in data:
+        row.total_amount = parse_decimal(data.get("total_amount"), "total_amount")
+    if "status" in data:
+        row.status = (data.get("status") or row.status).strip()
+    db.session.commit()
+    return jsonify({"message": "updated", "data": serialize("rfq", row)})
+
+
+@bp.route("/api/rfqs/<int:item_id>/workflow", methods=["POST"])
+@api_role_required("admin", "purchase")
+def api_rfqs_workflow(item_id):
+    row = RFQ.query.get_or_404(item_id)
+    next_status = (request.get_json(silent=True) or {}).get("status", "").strip()
+    try:
+        ensure_transition(row.status, next_status)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    row.status = next_status
+    db.session.commit()
+    return jsonify({"message": "transitioned", "data": serialize("rfq", row)})
 
 
 @bp.route("/api/purchase-orders", methods=["GET", "POST"])
-@login_required
+@api_auth_required
 def api_purchase_orders():
+    user = request.api_user
     if request.method == "POST":
-        if current_user.role not in ["admin", "purchase"]:
+        if user.role not in ["admin", "purchase"]:
             return jsonify({"error": "forbidden"}), 403
         data = request.get_json(silent=True) or {}
         try:
             validate_required(data, ["po_no", "vendor_name"])
-            item = PurchaseOrder(
-                po_no=data["po_no"].strip(),
-                vendor_name=data["vendor_name"].strip(),
-                total_amount=parse_decimal(data.get("total_amount"), "total_amount"),
-                status=(data.get("status") or "draft").strip(),
-            )
-            db.session.add(item)
+            row = PurchaseOrder(po_no=data["po_no"].strip(), vendor_name=data["vendor_name"].strip(), total_amount=parse_decimal(data.get("total_amount"), "total_amount"), status=(data.get("status") or "draft").strip())
+            db.session.add(row)
             db.session.commit()
-            return jsonify({"id": item.id, "message": "created"}), 201
+            return jsonify({"message": "created", "data": serialize("po", row)}), 201
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-    page, per_page = get_page_args()
     q = PurchaseOrder.query
-    search = (request.args.get("search") or "").strip()
+    s = (request.args.get("search") or "").strip()
     status = (request.args.get("status") or "").strip()
-    if search:
-        q = q.filter((PurchaseOrder.po_no.ilike(f"%{search}%")) | (PurchaseOrder.vendor_name.ilike(f"%{search}%")))
+    if s:
+        q = q.filter((PurchaseOrder.po_no.ilike(f"%{s}%")) | (PurchaseOrder.vendor_name.ilike(f"%{s}%")))
     if status:
         q = q.filter(PurchaseOrder.status == status)
+    return _api_list(q.order_by(PurchaseOrder.created_at.desc()), "po")
 
-    pagination = q.order_by(PurchaseOrder.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    rows = [
-        {
-            "id": r.id,
-            "po_no": r.po_no,
-            "vendor_name": r.vendor_name,
-            "total_amount": float(r.total_amount),
-            "status": r.status,
-            "created_at": r.created_at.isoformat(),
-        }
-        for r in pagination.items
-    ]
-    return jsonify({"data": rows, "meta": list_meta(page, per_page, pagination.total)})
+
+@bp.route("/api/purchase-orders/<int:item_id>", methods=["GET", "PUT", "DELETE"])
+@api_auth_required
+def api_purchase_orders_item(item_id):
+    user = request.api_user
+    row = PurchaseOrder.query.get_or_404(item_id)
+    if request.method == "GET":
+        return jsonify({"data": serialize("po", row)})
+    if user.role not in ["admin", "purchase"]:
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == "DELETE":
+        db.session.delete(row)
+        db.session.commit()
+        return jsonify({"message": "deleted"})
+    data = request.get_json(silent=True) or {}
+    if "vendor_name" in data:
+        row.vendor_name = data["vendor_name"].strip()
+    if "total_amount" in data:
+        row.total_amount = parse_decimal(data.get("total_amount"), "total_amount")
+    if "status" in data:
+        row.status = (data.get("status") or row.status).strip()
+    db.session.commit()
+    return jsonify({"message": "updated", "data": serialize("po", row)})
+
+
+@bp.route("/api/purchase-orders/<int:item_id>/workflow", methods=["POST"])
+@api_role_required("admin", "purchase")
+def api_purchase_orders_workflow(item_id):
+    row = PurchaseOrder.query.get_or_404(item_id)
+    next_status = (request.get_json(silent=True) or {}).get("status", "").strip()
+    try:
+        ensure_transition(row.status, next_status)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    row.status = next_status
+    db.session.commit()
+    return jsonify({"message": "transitioned", "data": serialize("po", row)})
 
 
 @bp.route("/api/invoices", methods=["GET", "POST"])
-@login_required
+@api_auth_required
 def api_invoices():
+    user = request.api_user
     if request.method == "POST":
-        if current_user.role not in ["admin", "accounting", "sales"]:
+        if user.role not in ["admin", "accounting", "sales"]:
             return jsonify({"error": "forbidden"}), 403
         data = request.get_json(silent=True) or {}
         try:
             validate_required(data, ["invoice_no", "customer_name"])
-            item = Invoice(
-                invoice_no=data["invoice_no"].strip(),
-                customer_name=data["customer_name"].strip(),
-                total_amount=parse_decimal(data.get("total_amount"), "total_amount"),
-                status=(data.get("status") or "unpaid").strip(),
-            )
-            db.session.add(item)
+            row = Invoice(invoice_no=data["invoice_no"].strip(), customer_name=data["customer_name"].strip(), total_amount=parse_decimal(data.get("total_amount"), "total_amount"), status=(data.get("status") or "draft").strip())
+            db.session.add(row)
             db.session.commit()
-            return jsonify({"id": item.id, "message": "created"}), 201
+            return jsonify({"message": "created", "data": serialize("invoice", row)}), 201
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-    page, per_page = get_page_args()
     q = Invoice.query
-    search = (request.args.get("search") or "").strip()
+    s = (request.args.get("search") or "").strip()
     status = (request.args.get("status") or "").strip()
-    if search:
-        q = q.filter((Invoice.invoice_no.ilike(f"%{search}%")) | (Invoice.customer_name.ilike(f"%{search}%")))
+    if s:
+        q = q.filter((Invoice.invoice_no.ilike(f"%{s}%")) | (Invoice.customer_name.ilike(f"%{s}%")))
     if status:
         q = q.filter(Invoice.status == status)
+    return _api_list(q.order_by(Invoice.created_at.desc()), "invoice")
 
-    pagination = q.order_by(Invoice.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    rows = [
-        {
-            "id": r.id,
-            "invoice_no": r.invoice_no,
-            "customer_name": r.customer_name,
-            "total_amount": float(r.total_amount),
-            "status": r.status,
-            "created_at": r.created_at.isoformat(),
-        }
-        for r in pagination.items
-    ]
-    return jsonify({"data": rows, "meta": list_meta(page, per_page, pagination.total)})
+
+@bp.route("/api/invoices/<int:item_id>", methods=["GET", "PUT", "DELETE"])
+@api_auth_required
+def api_invoices_item(item_id):
+    user = request.api_user
+    row = Invoice.query.get_or_404(item_id)
+    if request.method == "GET":
+        return jsonify({"data": serialize("invoice", row)})
+    if user.role not in ["admin", "accounting", "sales"]:
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == "DELETE":
+        db.session.delete(row)
+        db.session.commit()
+        return jsonify({"message": "deleted"})
+    data = request.get_json(silent=True) or {}
+    if "customer_name" in data:
+        row.customer_name = data["customer_name"].strip()
+    if "total_amount" in data:
+        row.total_amount = parse_decimal(data.get("total_amount"), "total_amount")
+    if "status" in data:
+        row.status = (data.get("status") or row.status).strip()
+    db.session.commit()
+    return jsonify({"message": "updated", "data": serialize("invoice", row)})
+
+
+@bp.route("/api/invoices/<int:item_id>/workflow", methods=["POST"])
+@api_role_required("admin", "accounting")
+def api_invoices_workflow(item_id):
+    row = Invoice.query.get_or_404(item_id)
+    next_status = (request.get_json(silent=True) or {}).get("status", "").strip()
+    try:
+        ensure_transition(row.status, next_status)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    row.status = next_status
+    db.session.commit()
+    return jsonify({"message": "transitioned", "data": serialize("invoice", row)})
