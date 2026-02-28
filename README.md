@@ -1,5 +1,9 @@
 # ERP Flask Skeleton
 
+> License: MIT — Copyright (c) 2026 Vikornsak (vikornsak@gmail.com)
+> 
+> If you use or redistribute this project, keep the copyright and license notice.
+
 Starter ERP web system based on:
 - Python Flask
 - Bulma CSS
