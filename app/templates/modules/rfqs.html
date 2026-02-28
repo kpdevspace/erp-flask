@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}RFQs{% endblock %}
+{% block content %}
+<h2 class="title is-3">Request for Quotations</h2>
+<form method="post" class="box">
+  <div class="columns">
+    <div class="column"><input class="input" name="rfq_no" placeholder="RFQ No" required></div>
+    <div class="column"><input class="input" name="supplier_name" placeholder="Supplier" required></div>
+    <div class="column"><input class="input" type="number" step="0.01" name="total_amount" placeholder="Amount"></div>
+    <div class="column is-2"><button class="button is-primary is-fullwidth">Create</button></div>
+  </div>
+</form>
+<table class="table is-fullwidth is-striped">
+  <thead><tr><th>RFQ No</th><th>Supplier</th><th>Amount</th><th>Status</th></tr></thead>
+  <tbody>
+    {% for r in items %}<tr><td>{{ r.rfq_no }}</td><td>{{ r.supplier_name }}</td><td>{{ r.total_amount }}</td><td>{{ r.status }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

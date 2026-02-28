@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ERP{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+  <style>
+    body { min-height: 100vh; }
+    .sidebar { min-height: 100vh; border-right: 1px solid #e8e8e8; }
+    .menu-list a.is-active { background: #eef3ff; color: #2d4ed8; }
+  </style>
+</head>
+<body>
+<div class="columns is-gapless">
+  <aside class="column is-3 sidebar p-5">
+    <h1 class="title is-4">Home</h1>
+    <aside class="menu mt-5">
+      <p class="menu-label">ERP</p>
+      <ul class="menu-list">
+        {% for item in menu_items %}
+          {% set slug = item.lower().replace(' ', '-') %}
+          {% if item == 'Request for Quotations' %}
+            {% set href = url_for('erp.rfqs') %}
+          {% elif item == 'Purchase Orders' %}
+            {% set href = url_for('erp.purchase_orders') %}
+          {% elif item == 'Invoices' %}
+            {% set href = url_for('erp.invoices') %}
+          {% elif item == 'Projects' %}
+            {% set href = url_for('erp.projects') %}
+          {% else %}
+            {% set href = url_for('erp.module_page', slug=slug) %}
+          {% endif %}
+          <li>
+            <a href="{{ href }}" class="{% if request.path == href %}is-active{% endif %}">{{ item }}</a>
+          </li>
+        {% endfor %}
+      </ul>
+    </aside>
+  </aside>
+  <main class="column p-6">
+    {% if current_user.is_authenticated %}
+      <div class="is-flex is-justify-content-space-between mb-4">
+        <div class="has-text-grey">Logged in as <strong>{{ current_user.username }}</strong> ({{ current_user.role }})</div>
+        <a class="button is-small" href="{{ url_for('erp.logout') }}">Logout</a>
+      </div>
+    {% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="notification is-{{ category if category in ['danger','warning','success','info'] else 'info' }} is-light">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

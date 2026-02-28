@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Invoices{% endblock %}
+{% block content %}
+<h2 class="title is-3">Invoices</h2>
+<form method="post" class="box">
+  <div class="columns">
+    <div class="column"><input class="input" name="invoice_no" placeholder="Invoice No" required></div>
+    <div class="column"><input class="input" name="customer_name" placeholder="Customer" required></div>
+    <div class="column"><input class="input" type="number" step="0.01" name="total_amount" placeholder="Amount"></div>
+    <div class="column is-2"><button class="button is-primary is-fullwidth">Create</button></div>
+  </div>
+</form>
+<table class="table is-fullwidth is-striped">
+  <thead><tr><th>Invoice No</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead>
+  <tbody>
+    {% for i in items %}<tr><td>{{ i.invoice_no }}</td><td>{{ i.customer_name }}</td><td>{{ i.total_amount }}</td><td>{{ i.status }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

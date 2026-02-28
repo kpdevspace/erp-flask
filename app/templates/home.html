@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}ERP Home{% endblock %}
+{% block content %}
+<section class="section p-0">
+  <h2 class="title is-3">ERP Dashboard</h2>
+  <p class="subtitle is-6">Flask + Bulma + PostgreSQL skeleton (ready for module expansion)</p>
+
+  <div class="columns is-multiline mb-2">
+    <div class="column is-4"><div class="box"><p class="heading">RFQs</p><p class="title is-4">{{ kpi.rfq_count }}</p></div></div>
+    <div class="column is-4"><div class="box"><p class="heading">Purchase Orders</p><p class="title is-4">{{ kpi.po_count }}</p></div></div>
+    <div class="column is-4"><div class="box"><p class="heading">Invoices</p><p class="title is-4">{{ kpi.invoice_count }}</p></div></div>
+    <div class="column is-4"><div class="box"><p class="heading">PO Total (THB)</p><p class="title is-5">{{ '%.2f'|format(kpi.po_total) }}</p></div></div>
+    <div class="column is-4"><div class="box"><p class="heading">Invoice Total (THB)</p><p class="title is-5">{{ '%.2f'|format(kpi.invoice_total) }}</p></div></div>
+    <div class="column is-4"><div class="box"><p class="heading">Unpaid Invoices</p><p class="title is-4">{{ kpi.unpaid_invoice_count }}</p></div></div>
+  </div>
+
+  <div class="columns is-multiline mt-4">
+    {% for item in menu_items %}
+      {% set slug = item.lower().replace(' ', '-') %}
+      <div class="column is-4">
+        <a class="box" href="{{ url_for('erp.module_page', slug=slug) }}">
+          <strong>{{ item }}</strong>
+          <p class="is-size-7 has-text-grey">Open module</p>
+        </a>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

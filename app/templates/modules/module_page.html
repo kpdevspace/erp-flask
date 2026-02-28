@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<h2 class="title is-3">{{ title }}</h2>
+<p class="subtitle is-6">Module slug: <code>{{ slug }}</code></p>
+
+<div class="notification is-info is-light">
+  This module is scaffolded and ready for business logic (CRUD, workflow, approvals, reports).
+</div>
+
+<div class="box">
+  <h3 class="title is-5">Recent Documents</h3>
+  {% if recent_docs %}
+    <table class="table is-fullwidth is-striped">
+      <thead>
+        <tr><th>Doc No</th><th>Title</th><th>Status</th><th>Amount</th></tr>
+      </thead>
+      <tbody>
+      {% for d in recent_docs %}
+        <tr>
+          <td>{{ d.doc_no }}</td>
+          <td>{{ d.title }}</td>
+          <td>{{ d.status }}</td>
+          <td>{{ d.amount }} {{ d.currency }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="has-text-grey">No documents yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

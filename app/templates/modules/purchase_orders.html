@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Purchase Orders{% endblock %}
+{% block content %}
+<h2 class="title is-3">Purchase Orders</h2>
+<form method="post" class="box">
+  <div class="columns">
+    <div class="column"><input class="input" name="po_no" placeholder="PO No" required></div>
+    <div class="column"><input class="input" name="vendor_name" placeholder="Vendor" required></div>
+    <div class="column"><input class="input" type="number" step="0.01" name="total_amount" placeholder="Amount"></div>
+    <div class="column is-2"><button class="button is-primary is-fullwidth">Create</button></div>
+  </div>
+</form>
+<table class="table is-fullwidth is-striped">
+  <thead><tr><th>PO No</th><th>Vendor</th><th>Amount</th><th>Status</th></tr></thead>
+  <tbody>
+    {% for p in items %}<tr><td>{{ p.po_no }}</td><td>{{ p.vendor_name }}</td><td>{{ p.total_amount }}</td><td>{{ p.status }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

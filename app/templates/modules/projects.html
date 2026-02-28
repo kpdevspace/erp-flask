@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Projects{% endblock %}
+{% block content %}
+<h2 class="title is-3">Projects</h2>
+<div class="box">
+  {% if items %}
+    <table class="table is-fullwidth is-striped">
+      <thead>
+      <tr><th>ID</th><th>Name</th><th>Customer</th><th>Status</th><th>Updated</th></tr>
+      </thead>
+      <tbody>
+      {% for p in items %}
+      <tr>
+        <td>{{ p.id }}</td>
+        <td>{{ p.name }}</td>
+        <td>{{ p.customer_name or '-' }}</td>
+        <td>{{ p.status }}</td>
+        <td>{{ p.updated_at }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="has-text-grey">No projects yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

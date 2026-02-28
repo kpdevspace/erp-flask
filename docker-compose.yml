@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: erpdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build: .
+    depends_on:
+      - db
+    environment:
+      SECRET_KEY: change-this-secret
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/erpdb
+      ADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5000:5000"
+
+volumes:
+  postgres_data:
