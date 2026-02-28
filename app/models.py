@@ -15,6 +15,14 @@ class SoftDeleteMixin:
     deleted_at = db.Column(db.DateTime, nullable=True, index=True)
 
 
+class Organization(db.Model, TimestampMixin):
+    __tablename__ = "organizations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), unique=True, nullable=False)
+    default_locale = db.Column(db.String(10), nullable=False, default="en")
+
+
 class User(db.Model, UserMixin, TimestampMixin):
     __tablename__ = "users"
 
@@ -22,6 +30,9 @@ class User(db.Model, UserMixin, TimestampMixin):
     username = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(50), nullable=False, default="staff")
+    organization_id = db.Column(db.Integer, db.ForeignKey("organizations.id"), nullable=True, index=True)
+
+    organization = db.relationship("Organization", lazy="joined")
 
     def set_password(self, raw_password: str):
         self.password_hash = generate_password_hash(raw_password)
@@ -33,6 +44,22 @@ class User(db.Model, UserMixin, TimestampMixin):
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+
+class Translation(db.Model, TimestampMixin):
+    __tablename__ = "translations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey("organizations.id"), nullable=False, index=True)
+    locale = db.Column(db.String(10), nullable=False, index=True)
+    key = db.Column(db.String(200), nullable=False, index=True)
+    value = db.Column(db.Text, nullable=False)
+
+    organization = db.relationship("Organization", lazy="joined")
+
+    __table_args__ = (
+        db.UniqueConstraint("organization_id", "locale", "key", name="uq_org_locale_key"),
+    )
 
 
 class Project(db.Model, TimestampMixin):

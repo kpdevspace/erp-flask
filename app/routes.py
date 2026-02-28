@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from functools import wraps
 from io import BytesIO
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from openpyxl import Workbook
 from reportlab.lib.pagesizes import A4
@@ -31,6 +31,8 @@ from .models import (
     RFQ,
     RefreshToken,
     User,
+    Organization,
+    Translation,
 )
 
 bp = Blueprint("erp", __name__)
@@ -58,6 +60,26 @@ WORKFLOW = {
     "submitted": ["approved", "rejected"],
     "approved": [],
     "rejected": [],
+}
+
+SUPPORTED_LOCALES = ["th", "en", "zh"]
+
+DEFAULT_TRANSLATIONS = {
+    "en": {
+        "home": "Home",
+        "reports": "Reports",
+        "language_manage": "Language Management",
+    },
+    "th": {
+        "home": "หน้าหลัก",
+        "reports": "รายงาน",
+        "language_manage": "จัดการภาษา",
+    },
+    "zh": {
+        "home": "主页",
+        "reports": "报表",
+        "language_manage": "语言管理",
+    },
 }
 
 
@@ -92,6 +114,45 @@ def role_required(*roles):
 
 def module_slug(title: str) -> str:
     return title.lower().replace(" ", "-")
+
+
+def current_org_id():
+    if getattr(current_user, "is_authenticated", False) and current_user.organization_id:
+        return current_user.organization_id
+    org = Organization.query.order_by(Organization.id.asc()).first()
+    return org.id if org else None
+
+
+def resolve_locale():
+    qlang = (request.args.get("lang") or "").strip().lower()
+    if qlang in SUPPORTED_LOCALES:
+        session["lang"] = qlang
+        return qlang
+    if session.get("lang") in SUPPORTED_LOCALES:
+        return session.get("lang")
+    if getattr(current_user, "is_authenticated", False) and current_user.organization:
+        if current_user.organization.default_locale in SUPPORTED_LOCALES:
+            return current_user.organization.default_locale
+    return "en"
+
+
+def tr(key: str, default: str = ""):
+    locale = resolve_locale()
+    org_id = current_org_id()
+    if org_id:
+        row = Translation.query.filter_by(organization_id=org_id, locale=locale, key=key).first()
+        if row and row.value:
+            return row.value
+    return DEFAULT_TRANSLATIONS.get(locale, {}).get(key) or default or key
+
+
+@bp.app_context_processor
+def inject_i18n():
+    return {
+        "t": tr,
+        "lang": resolve_locale(),
+        "supported_locales": SUPPORTED_LOCALES,
+    }
 
 
 def parse_decimal(value, field_name: str):
@@ -152,10 +213,17 @@ def report_data():
 
 @bp.route("/init-admin")
 def init_admin():
+    org = Organization.query.filter_by(name="Default Organization").first()
+    if not org:
+        org = Organization(name="Default Organization", default_locale="en")
+        db.session.add(org)
+        db.session.flush()
+
     if User.query.filter_by(username="admin").first():
+        db.session.commit()
         return "admin already exists", 200
 
-    user = User(username="admin", role="admin")
+    user = User(username="admin", role="admin", organization_id=org.id)
     user.set_password(os.getenv("ADMIN_DEFAULT_PASSWORD", "admin123"))
     db.session.add(user)
     db.session.commit()
@@ -180,6 +248,64 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for("erp.login"))
+
+
+@bp.route("/set-language/<locale>")
+@login_required
+def set_language(locale):
+    locale = (locale or "").lower()
+    if locale in SUPPORTED_LOCALES:
+        session["lang"] = locale
+    return redirect(request.referrer or url_for("erp.home"))
+
+
+@bp.route("/admin/languages", methods=["GET", "POST"])
+@role_required("admin")
+def admin_languages():
+    org_id = request.args.get("org_id", type=int) or current_org_id()
+    locale = (request.args.get("locale") or resolve_locale()).lower()
+    if locale not in SUPPORTED_LOCALES:
+        locale = "en"
+
+    organizations = Organization.query.order_by(Organization.name.asc()).all()
+    org = Organization.query.get(org_id) if org_id else None
+
+    if request.method == "POST":
+        form_type = request.form.get("form_type", "translation")
+        if form_type == "org_locale" and org:
+            new_locale = (request.form.get("default_locale") or "en").lower()
+            if new_locale in SUPPORTED_LOCALES:
+                org.default_locale = new_locale
+                db.session.commit()
+                flash("Organization default language updated", "success")
+            return redirect(url_for("erp.admin_languages", org_id=org.id, locale=new_locale))
+
+        key = (request.form.get("key") or "").strip()
+        value = (request.form.get("value") or "").strip()
+        post_locale = (request.form.get("locale") or locale).lower()
+        post_org_id = request.form.get("org_id", type=int) or org_id
+        if key and post_locale in SUPPORTED_LOCALES and post_org_id:
+            row = Translation.query.filter_by(organization_id=post_org_id, locale=post_locale, key=key).first()
+            if row:
+                row.value = value
+            else:
+                db.session.add(Translation(organization_id=post_org_id, locale=post_locale, key=key, value=value))
+            db.session.commit()
+            flash("Translation saved", "success")
+        return redirect(url_for("erp.admin_languages", org_id=post_org_id, locale=post_locale))
+
+    rows = []
+    if org:
+        rows = Translation.query.filter_by(organization_id=org.id, locale=locale).order_by(Translation.key.asc()).all()
+
+    return render_template(
+        "admin_languages.html",
+        menu_items=MENU_ITEMS,
+        organizations=organizations,
+        selected_org=org,
+        selected_locale=locale,
+        rows=rows,
+    )
 
 
 @bp.route("/api/token", methods=["POST"])

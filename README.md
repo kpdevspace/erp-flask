@@ -137,6 +137,7 @@ curl -X POST http://127.0.0.1:5000/api/rfqs/1/workflow \
 13. Rate limiting + CORS policy for `/api/*`
 14. Backup/restore scripts: `scripts/backup.sh`, `scripts/restore.sh`
 15. Production deployment guide: `DEPLOYMENT.md`
+16. Multi-language support by organization (TH/EN/ZH) + Admin language management page (`/admin/languages`)
 
 ## Initial admin
 1. Open `/init-admin` once to create default admin.

@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Language Management{% endblock %}
+{% block content %}
+<h2 class="title is-3">Language Management</h2>
+
+<div class="box">
+  <form method="get" class="columns is-vcentered">
+    <div class="column is-4">
+      <div class="select is-fullwidth">
+        <select name="org_id" onchange="this.form.submit()">
+          {% for o in organizations %}
+            <option value="{{ o.id }}" {% if selected_org and o.id == selected_org.id %}selected{% endif %}>{{ o.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="column is-3">
+      <div class="select is-fullwidth">
+        <select name="locale" onchange="this.form.submit()">
+          {% for lc in supported_locales %}
+            <option value="{{ lc }}" {% if lc == selected_locale %}selected{% endif %}>{{ lc|upper }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </form>
+
+  {% if selected_org %}
+  <form method="post" class="mb-4">
+    <input type="hidden" name="form_type" value="org_locale">
+    <div class="field has-addons">
+      <div class="control"><span class="button is-static">Default language</span></div>
+      <div class="control">
+        <div class="select">
+          <select name="default_locale">
+            {% for lc in supported_locales %}
+              <option value="{{ lc }}" {% if selected_org.default_locale == lc %}selected{% endif %}>{{ lc|upper }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="control"><button class="button is-link">Update</button></div>
+    </div>
+  </form>
+  {% endif %}
+
+  <form method="post" class="mb-5">
+    <input type="hidden" name="org_id" value="{{ selected_org.id if selected_org else '' }}">
+    <input type="hidden" name="locale" value="{{ selected_locale }}">
+    <div class="columns">
+      <div class="column"><input class="input" name="key" placeholder="key เช่น menu.projects" required></div>
+      <div class="column"><input class="input" name="value" placeholder="translated value" required></div>
+      <div class="column is-2"><button class="button is-primary is-fullwidth">Save</button></div>
+    </div>
+  </form>
+
+  <table class="table is-fullwidth is-striped">
+    <thead><tr><th>Key</th><th>Value</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr><td><code>{{ r.key }}</code></td><td>{{ r.value }}</td></tr>
+    {% else %}
+      <tr><td colspan="2" class="has-text-grey">No translations yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

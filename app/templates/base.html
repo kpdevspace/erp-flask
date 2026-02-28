@@ -14,7 +14,20 @@
 <body>
 <div class="columns is-gapless">
   <aside class="column is-3 sidebar p-5">
-    <h1 class="title is-4">Home</h1>
+    <h1 class="title is-4">{{ t('home', 'Home') }}</h1>
+    {% if current_user.is_authenticated %}
+      <div class="field mt-3">
+        <div class="control">
+          <div class="select is-small is-fullwidth">
+            <select onchange="window.location.href=this.value">
+              {% for lc in supported_locales %}
+                <option value="{{ url_for('erp.set_language', locale=lc) }}" {% if lc == lang %}selected{% endif %}>{{ lc|upper }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+    {% endif %}
     <aside class="menu mt-5">
       <p class="menu-label">ERP</p>
       <ul class="menu-list">
@@ -32,10 +45,16 @@
             {% set href = url_for('erp.module_page', slug=slug) %}
           {% endif %}
           <li>
-            <a href="{{ href }}" class="{% if request.path == href %}is-active{% endif %}">{{ item }}</a>
+            <a href="{{ href }}" class="{% if request.path == href %}is-active{% endif %}">{{ t('menu.' ~ slug, item) }}</a>
           </li>
         {% endfor %}
       </ul>
+      {% if current_user.is_authenticated and current_user.role == 'admin' %}
+        <p class="menu-label mt-4">Admin</p>
+        <ul class="menu-list">
+          <li><a href="{{ url_for('erp.admin_languages') }}" class="{% if request.path == url_for('erp.admin_languages') %}is-active{% endif %}">{{ t('language_manage', 'Language Management') }}</a></li>
+        </ul>
+      {% endif %}
     </aside>
   </aside>
   <main class="column p-6">
