@@ -133,6 +133,10 @@ curl -X POST http://127.0.0.1:5000/api/rfqs/1/workflow \
 9. Soft delete for API DELETE actions (RFQ/PO/Invoice)
 10. Audit logs endpoint (admin only): `GET /api/audit-logs`
 11. CI workflow (GitHub Actions): `.github/workflows/ci.yml`
+12. Health/Readiness endpoints: `/health`, `/ready`
+13. Rate limiting + CORS policy for `/api/*`
+14. Backup/restore scripts: `scripts/backup.sh`, `scripts/restore.sh`
+15. Production deployment guide: `DEPLOYMENT.md`
 
 ## Initial admin
 1. Open `/init-admin` once to create default admin.

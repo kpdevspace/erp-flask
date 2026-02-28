@@ -10,9 +10,9 @@ from flask_login import current_user, login_required, login_user, logout_user
 from openpyxl import Workbook
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-from sqlalchemy import func
+from sqlalchemy import func, text
 
-from . import db
+from . import db, limiter
 from .auth import (
     api_auth_required,
     api_role_required,
@@ -183,6 +183,7 @@ def logout():
 
 
 @bp.route("/api/token", methods=["POST"])
+@limiter.limit("10 per minute")
 def api_token():
     data = request.get_json(silent=True) or {}
     user = User.query.filter_by(username=str(data.get("username", "")).strip()).first()
@@ -197,6 +198,7 @@ def api_token():
 
 
 @bp.route("/api/token/refresh", methods=["POST"])
+@limiter.limit("20 per minute")
 def api_token_refresh():
     data = request.get_json(silent=True) or {}
     raw = str(data.get("refresh_token", "")).strip()
@@ -220,6 +222,7 @@ def api_token_refresh():
 
 
 @bp.route("/api/token/revoke", methods=["POST"])
+@limiter.limit("30 per minute")
 @api_auth_required
 def api_token_revoke():
     data = request.get_json(silent=True) or {}
@@ -241,6 +244,20 @@ def api_token_revoke():
     log_action("token_revoke", "auth", details={"by": request.api_user.username}, actor_id=request.api_user.id)
     db.session.commit()
     return jsonify({"message": "revoked"})
+
+
+@bp.route("/health")
+def health():
+    return jsonify({"status": "ok"})
+
+
+@bp.route("/ready")
+def ready():
+    try:
+        db.session.execute(text("SELECT 1"))
+        return jsonify({"status": "ready"})
+    except Exception as exc:
+        return jsonify({"status": "not_ready", "error": str(exc)}), 503
 
 
 @bp.route("/")
@@ -312,6 +329,7 @@ def _api_list(q, model_name):
 
 
 @bp.route("/api/rfqs", methods=["GET", "POST"])
+@limiter.limit("120 per minute")
 @api_auth_required
 def api_rfqs():
     user = request.api_user
@@ -337,6 +355,7 @@ def api_rfqs():
 
 
 @bp.route("/api/rfqs/<int:item_id>", methods=["GET", "PUT", "DELETE"])
+@limiter.limit("120 per minute")
 @api_auth_required
 def api_rfqs_item(item_id):
     user = request.api_user
@@ -376,6 +395,7 @@ def api_rfqs_workflow(item_id):
 
 
 @bp.route("/api/purchase-orders", methods=["GET", "POST"])
+@limiter.limit("120 per minute")
 @api_auth_required
 def api_purchase_orders():
     user = request.api_user
@@ -401,6 +421,7 @@ def api_purchase_orders():
 
 
 @bp.route("/api/purchase-orders/<int:item_id>", methods=["GET", "PUT", "DELETE"])
+@limiter.limit("120 per minute")
 @api_auth_required
 def api_purchase_orders_item(item_id):
     user = request.api_user
@@ -440,6 +461,7 @@ def api_purchase_orders_workflow(item_id):
 
 
 @bp.route("/api/invoices", methods=["GET", "POST"])
+@limiter.limit("120 per minute")
 @api_auth_required
 def api_invoices():
     user = request.api_user
@@ -465,6 +487,7 @@ def api_invoices():
 
 
 @bp.route("/api/invoices/<int:item_id>", methods=["GET", "PUT", "DELETE"])
+@limiter.limit("120 per minute")
 @api_auth_required
 def api_invoices_item(item_id):
     user = request.api_user
