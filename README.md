@@ -138,6 +138,9 @@ curl -X POST http://127.0.0.1:5000/api/rfqs/1/workflow \
 14. Backup/restore scripts: `scripts/backup.sh`, `scripts/restore.sh`
 15. Production deployment guide: `DEPLOYMENT.md`
 16. Multi-language support by organization (TH/EN/ZH) + Admin language management page (`/admin/languages`)
+17. Translation fallback chain: organization -> global -> default
+18. Translation import/export CSV for admin
+19. Translation key governance (allowed prefixes: `menu.`, `common.`, `errors.`, `labels.`)
 
 ## Initial admin
 1. Open `/init-admin` once to create default admin.

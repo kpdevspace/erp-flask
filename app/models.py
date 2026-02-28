@@ -50,7 +50,7 @@ class Translation(db.Model, TimestampMixin):
     __tablename__ = "translations"
 
     id = db.Column(db.Integer, primary_key=True)
-    organization_id = db.Column(db.Integer, db.ForeignKey("organizations.id"), nullable=False, index=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey("organizations.id"), nullable=True, index=True)
     locale = db.Column(db.String(10), nullable=False, index=True)
     key = db.Column(db.String(200), nullable=False, index=True)
     value = db.Column(db.Text, nullable=False)

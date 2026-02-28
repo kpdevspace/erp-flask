@@ -1,9 +1,10 @@
+import csv
 import json
 import os
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from functools import wraps
-from io import BytesIO
+from io import BytesIO, StringIO
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
@@ -63,6 +64,7 @@ WORKFLOW = {
 }
 
 SUPPORTED_LOCALES = ["th", "en", "zh"]
+ALLOWED_KEY_PREFIXES = ["menu.", "common.", "errors.", "labels."]
 
 DEFAULT_TRANSLATIONS = {
     "en": {
@@ -136,6 +138,10 @@ def resolve_locale():
     return "en"
 
 
+def is_allowed_translation_key(key: str) -> bool:
+    return any(key.startswith(prefix) for prefix in ALLOWED_KEY_PREFIXES)
+
+
 def tr(key: str, default: str = ""):
     locale = resolve_locale()
     org_id = current_org_id()
@@ -143,6 +149,9 @@ def tr(key: str, default: str = ""):
         row = Translation.query.filter_by(organization_id=org_id, locale=locale, key=key).first()
         if row and row.value:
             return row.value
+    global_row = Translation.query.filter_by(organization_id=None, locale=locale, key=key).first()
+    if global_row and global_row.value:
+        return global_row.value
     return DEFAULT_TRANSLATIONS.get(locale, {}).get(key) or default or key
 
 
@@ -262,7 +271,11 @@ def set_language(locale):
 @bp.route("/admin/languages", methods=["GET", "POST"])
 @role_required("admin")
 def admin_languages():
-    org_id = request.args.get("org_id", type=int) or current_org_id()
+    org_id = request.args.get("org_id", type=int)
+    scope = (request.args.get("scope") or "org").lower()
+    if scope == "org" and not org_id:
+        org_id = current_org_id()
+
     locale = (request.args.get("locale") or resolve_locale()).lower()
     if locale not in SUPPORTED_LOCALES:
         locale = "en"
@@ -278,13 +291,19 @@ def admin_languages():
                 org.default_locale = new_locale
                 db.session.commit()
                 flash("Organization default language updated", "success")
-            return redirect(url_for("erp.admin_languages", org_id=org.id, locale=new_locale))
+            return redirect(url_for("erp.admin_languages", scope="org", org_id=org.id, locale=new_locale))
 
         key = (request.form.get("key") or "").strip()
         value = (request.form.get("value") or "").strip()
         post_locale = (request.form.get("locale") or locale).lower()
-        post_org_id = request.form.get("org_id", type=int) or org_id
-        if key and post_locale in SUPPORTED_LOCALES and post_org_id:
+        post_scope = (request.form.get("scope") or scope).lower()
+        post_org_id = request.form.get("org_id", type=int) if post_scope == "org" else None
+
+        if not is_allowed_translation_key(key):
+            flash("Invalid key prefix. Allowed: menu., common., errors., labels.", "danger")
+            return redirect(url_for("erp.admin_languages", scope=post_scope, org_id=post_org_id, locale=post_locale))
+
+        if key and post_locale in SUPPORTED_LOCALES:
             row = Translation.query.filter_by(organization_id=post_org_id, locale=post_locale, key=key).first()
             if row:
                 row.value = value
@@ -292,11 +311,9 @@ def admin_languages():
                 db.session.add(Translation(organization_id=post_org_id, locale=post_locale, key=key, value=value))
             db.session.commit()
             flash("Translation saved", "success")
-        return redirect(url_for("erp.admin_languages", org_id=post_org_id, locale=post_locale))
+        return redirect(url_for("erp.admin_languages", scope=post_scope, org_id=post_org_id, locale=post_locale))
 
-    rows = []
-    if org:
-        rows = Translation.query.filter_by(organization_id=org.id, locale=locale).order_by(Translation.key.asc()).all()
+    rows = Translation.query.filter_by(organization_id=(org.id if scope == "org" and org else None), locale=locale).order_by(Translation.key.asc()).all()
 
     return render_template(
         "admin_languages.html",
@@ -305,7 +322,59 @@ def admin_languages():
         selected_org=org,
         selected_locale=locale,
         rows=rows,
+        scope=scope,
+        allowed_key_prefixes=ALLOWED_KEY_PREFIXES,
     )
+
+
+@bp.route("/admin/languages/export.csv")
+@role_required("admin")
+def admin_languages_export_csv():
+    scope = (request.args.get("scope") or "org").lower()
+    org_id = request.args.get("org_id", type=int) if scope == "org" else None
+    locale = (request.args.get("locale") or resolve_locale()).lower()
+    if locale not in SUPPORTED_LOCALES:
+        locale = "en"
+
+    rows = Translation.query.filter_by(organization_id=org_id, locale=locale).order_by(Translation.key.asc()).all()
+
+    out = StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["key", "value"])
+    for r in rows:
+        writer.writerow([r.key, r.value])
+    payload = out.getvalue()
+    out.close()
+
+    prefix = f"org-{org_id}" if org_id else "global"
+    return send_file(BytesIO(payload.encode("utf-8")), mimetype="text/csv", as_attachment=True, download_name=f"translations-{prefix}-{locale}.csv")
+
+
+@bp.route("/admin/languages/import", methods=["POST"])
+@role_required("admin")
+def admin_languages_import():
+    scope = (request.form.get("scope") or "org").lower()
+    org_id = request.form.get("org_id", type=int) if scope == "org" else None
+    locale = (request.form.get("locale") or "en").lower()
+    csv_text = request.form.get("csv_text") or ""
+
+    reader = csv.DictReader(StringIO(csv_text))
+    upserts = 0
+    for row in reader:
+        key = (row.get("key") or "").strip()
+        value = (row.get("value") or "").strip()
+        if not key or not is_allowed_translation_key(key):
+            continue
+        existing = Translation.query.filter_by(organization_id=org_id, locale=locale, key=key).first()
+        if existing:
+            existing.value = value
+        else:
+            db.session.add(Translation(organization_id=org_id, locale=locale, key=key, value=value))
+        upserts += 1
+
+    db.session.commit()
+    flash(f"Imported {upserts} translation rows", "success")
+    return redirect(url_for("erp.admin_languages", scope=scope, org_id=org_id, locale=locale))
 
 
 @bp.route("/api/token", methods=["POST"])

@@ -5,9 +5,17 @@
 
 <div class="box">
   <form method="get" class="columns is-vcentered">
+    <div class="column is-3">
+      <div class="select is-fullwidth">
+        <select name="scope" onchange="this.form.submit()">
+          <option value="org" {% if scope == 'org' %}selected{% endif %}>Organization</option>
+          <option value="global" {% if scope == 'global' %}selected{% endif %}>Global fallback</option>
+        </select>
+      </div>
+    </div>
     <div class="column is-4">
       <div class="select is-fullwidth">
-        <select name="org_id" onchange="this.form.submit()">
+        <select name="org_id" onchange="this.form.submit()" {% if scope != 'org' %}disabled{% endif %}>
           {% for o in organizations %}
             <option value="{{ o.id }}" {% if selected_org and o.id == selected_org.id %}selected{% endif %}>{{ o.name }}</option>
           {% endfor %}
@@ -23,9 +31,12 @@
         </select>
       </div>
     </div>
+    <div class="column is-2">
+      <a class="button is-light is-fullwidth" href="{{ url_for('erp.admin_languages_export_csv', scope=scope, org_id=(selected_org.id if selected_org else None), locale=selected_locale) }}">Export CSV</a>
+    </div>
   </form>
 
-  {% if selected_org %}
+  {% if selected_org and scope == 'org' %}
   <form method="post" class="mb-4">
     <input type="hidden" name="form_type" value="org_locale">
     <div class="field has-addons">
@@ -44,7 +55,10 @@
   </form>
   {% endif %}
 
+  <p class="is-size-7 has-text-grey mb-2">Allowed key prefixes: {{ allowed_key_prefixes|join(', ') }}</p>
+
   <form method="post" class="mb-5">
+    <input type="hidden" name="scope" value="{{ scope }}">
     <input type="hidden" name="org_id" value="{{ selected_org.id if selected_org else '' }}">
     <input type="hidden" name="locale" value="{{ selected_locale }}">
     <div class="columns">
@@ -52,6 +66,15 @@
       <div class="column"><input class="input" name="value" placeholder="translated value" required></div>
       <div class="column is-2"><button class="button is-primary is-fullwidth">Save</button></div>
     </div>
+  </form>
+
+  <form method="post" action="{{ url_for('erp.admin_languages_import') }}" class="mb-5">
+    <input type="hidden" name="scope" value="{{ scope }}">
+    <input type="hidden" name="org_id" value="{{ selected_org.id if selected_org else '' }}">
+    <input type="hidden" name="locale" value="{{ selected_locale }}">
+    <label class="label">CSV Import (columns: key,value)</label>
+    <textarea class="textarea" name="csv_text" rows="5" placeholder="key,value&#10;menu.projects,Projects"></textarea>
+    <button class="button is-link mt-2">Import CSV Text</button>
   </form>
 
   <table class="table is-fullwidth is-striped">
