@@ -119,6 +119,8 @@ curl -X POST http://127.0.0.1:5000/api/rfqs/1/workflow \
    - `GET/PUT/DELETE /api/invoices/<id>`
    - Query params: `page`, `per_page`, `search`, `status`
 6. JWT token auth for client apps (`POST /api/token`)
+   - refresh token: `POST /api/token/refresh`
+   - revoke token: `POST /api/token/revoke`
 7. Approval workflow endpoint:
    - `POST /api/rfqs/<id>/workflow`
    - `POST /api/purchase-orders/<id>/workflow`
@@ -128,6 +130,9 @@ curl -X POST http://127.0.0.1:5000/api/rfqs/1/workflow \
    - `/reports`
    - `/reports/export.xlsx`
    - `/reports/export.pdf`
+9. Soft delete for API DELETE actions (RFQ/PO/Invoice)
+10. Audit logs endpoint (admin only): `GET /api/audit-logs`
+11. CI workflow (GitHub Actions): `.github/workflows/ci.yml`
 
 ## Initial admin
 1. Open `/init-admin` once to create default admin.
