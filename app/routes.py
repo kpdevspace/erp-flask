@@ -517,6 +517,78 @@ def projects():
     return render_template("modules/projects.html", menu_items=MENU_ITEMS, items=Project.query.order_by(Project.created_at.desc()).limit(30).all())
 
 
+@bp.route("/rfqs", methods=["GET", "POST"])
+@role_required("admin", "purchase")
+def rfqs():
+    if request.method == "POST":
+        try:
+            validate_required(request.form, ["rfq_no", "supplier_name"])
+            row = RFQ(
+                rfq_no=request.form["rfq_no"].strip(),
+                supplier_name=request.form["supplier_name"].strip(),
+                total_amount=parse_decimal(request.form.get("total_amount"), "total_amount"),
+                status=(request.form.get("status") or "draft").strip(),
+            )
+            db.session.add(row)
+            log_action("create", "rfq", details={"rfq_no": row.rfq_no})
+            db.session.commit()
+            flash("RFQ created", "success")
+        except Exception as exc:
+            db.session.rollback()
+            flash(str(exc), "danger")
+        return redirect(url_for("erp.rfqs"))
+    items = active_query(RFQ).order_by(RFQ.created_at.desc()).all()
+    return render_template("modules/rfqs.html", menu_items=MENU_ITEMS, items=items)
+
+
+@bp.route("/purchase-orders", methods=["GET", "POST"])
+@role_required("admin", "purchase")
+def purchase_orders():
+    if request.method == "POST":
+        try:
+            validate_required(request.form, ["po_no", "vendor_name"])
+            row = PurchaseOrder(
+                po_no=request.form["po_no"].strip(),
+                vendor_name=request.form["vendor_name"].strip(),
+                total_amount=parse_decimal(request.form.get("total_amount"), "total_amount"),
+                status=(request.form.get("status") or "draft").strip(),
+            )
+            db.session.add(row)
+            log_action("create", "purchase_order", details={"po_no": row.po_no})
+            db.session.commit()
+            flash("Purchase Order created", "success")
+        except Exception as exc:
+            db.session.rollback()
+            flash(str(exc), "danger")
+        return redirect(url_for("erp.purchase_orders"))
+    items = active_query(PurchaseOrder).order_by(PurchaseOrder.created_at.desc()).all()
+    return render_template("modules/purchase_orders.html", menu_items=MENU_ITEMS, items=items)
+
+
+@bp.route("/invoices", methods=["GET", "POST"])
+@role_required("admin", "accounting", "sales")
+def invoices():
+    if request.method == "POST":
+        try:
+            validate_required(request.form, ["invoice_no", "customer_name"])
+            row = Invoice(
+                invoice_no=request.form["invoice_no"].strip(),
+                customer_name=request.form["customer_name"].strip(),
+                total_amount=parse_decimal(request.form.get("total_amount"), "total_amount"),
+                status=(request.form.get("status") or "draft").strip(),
+            )
+            db.session.add(row)
+            log_action("create", "invoice", details={"invoice_no": row.invoice_no})
+            db.session.commit()
+            flash("Invoice created", "success")
+        except Exception as exc:
+            db.session.rollback()
+            flash(str(exc), "danger")
+        return redirect(url_for("erp.invoices"))
+    items = active_query(Invoice).order_by(Invoice.created_at.desc()).all()
+    return render_template("modules/invoices.html", menu_items=MENU_ITEMS, items=items)
+
+
 def _api_list(q, model_name):
     page, per_page = get_page_args()
     pagination = q.paginate(page=page, per_page=per_page, error_out=False)
