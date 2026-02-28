@@ -1,4 +1,9 @@
-version: "3.9"
+x-app-env: &app-env
+  SECRET_KEY: change-this-secret
+  JWT_SECRET_KEY: change-this-jwt-secret
+  DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/erpdb
+  ADMIN_DEFAULT_PASSWORD: admin123
+  CORS_ALLOWED_ORIGINS: "*"
 
 services:
   db:
@@ -8,7 +13,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "4003:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -16,13 +21,17 @@ services:
     build: .
     depends_on:
       - db
-    environment:
-      SECRET_KEY: change-this-secret
-      JWT_SECRET_KEY: change-this-jwt-secret
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/erpdb
-      ADMIN_DEFAULT_PASSWORD: admin123
+    environment: *app-env
     ports:
-      - "5000:5000"
+      - "4000:5000"
+
+  api:
+    build: .
+    depends_on:
+      - db
+    environment: *app-env
+    ports:
+      - "4002:5000"
 
 volumes:
   postgres_data:

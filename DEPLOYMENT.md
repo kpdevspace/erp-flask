@@ -21,6 +21,11 @@ flask --app run.py db upgrade
 docker compose up -d --build
 ```
 
+Port mapping:
+- Web: `http://<host>:4000`
+- API: `http://<host>:4002`
+- PostgreSQL: `<host>:4003`
+
 ## 4) Health checks
 - Liveness: `GET /health`
 - Readiness: `GET /ready`

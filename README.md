@@ -65,6 +65,12 @@ Open: http://127.0.0.1:5000
 docker compose up -d --build
 ```
 
+Ports:
+- Web: `4000`
+- API: `4002`
+- PostgreSQL: `4003`
+
+
 Then migrate DB inside container:
 
 ```bash
